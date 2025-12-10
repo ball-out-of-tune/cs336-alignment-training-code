@@ -251,7 +251,13 @@ def run_one_size(args, train_path, test_path, train_size, run_suffix):
             sched.step()
 
             if rank0 and (global_train_step % args.log_every == 0):
-                wandb.log({f"train/loss[{run_suffix}]": loss.item(), "train_step": global_train_step})
+                # === 新增：记录当前学习率 ===
+                current_lr = sched.get_last_lr()[0]  # 或者 opt.param_groups[0]["lr"]
+                wandb.log({
+                    f"train/loss[{run_suffix}]": loss.item(),
+                    f"train/lr[{run_suffix}]": current_lr,
+                    "train_step": global_train_step,
+                })
 
             # 定期评测（在 cuda:1 上）
             if llm is not None and (global_train_step % args.eval_every == 0):
@@ -305,16 +311,17 @@ def run_one_size(args, train_path, test_path, train_size, run_suffix):
 def main():
     p = argparse.ArgumentParser()
     # TODO: tune lr and batch_size to get better performance, adjust eval freq and epochs to reduce time
+    # and use qwen's tokenizer
     p.add_argument("--model_id", type=str, default="Qwen/Qwen2.5-1.5B")
     p.add_argument("--train_path", type=str, default="sft_train.jsonl")
     p.add_argument("--test_path", type=str, default="sft_test.jsonl")
-    p.add_argument("--epochs", type=int, default=5)
+    p.add_argument("--epochs", type=int, default=3)
     p.add_argument("--batch_size", type=int, default=8)
     p.add_argument("--lr", type=float, default=2e-5)
     p.add_argument("--warmup_ratio", type=float, default=0.03)
     p.add_argument("--max_len", type=int, default=1024)
-    p.add_argument("--log_every", type=int, default=5)
-    p.add_argument("--eval_every", type=int, default=20)
+    p.add_argument("--log_every", type=int, default=20)
+    p.add_argument("--eval_every", type=int, default=100)
     p.add_argument("--eval_n", type=int, default=256)
     p.add_argument("--gen_max_new_tokens", type=int, default=512)
     p.add_argument("--vllm_mem_util", type=float, default=0.85)
