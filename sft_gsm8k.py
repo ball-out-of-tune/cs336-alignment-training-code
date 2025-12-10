@@ -341,12 +341,13 @@ def run_one_size(args, train_path, test_path, train_size, run_suffix):
 def main():
     p = argparse.ArgumentParser()
     # TODO: tune lr and batch_size to get better performance, adjust eval freq and epochs to reduce time
-    # and use qwen's tokenizer
+    # and use qwen's tokenizer, also add GPU utilization and speed record, change vllm max_context_size
+    # learn about why use vllm 
     p.add_argument("--model_id", type=str, default="Qwen/Qwen2.5-1.5B")
     p.add_argument("--train_path", type=str, default="sft_train.jsonl")
     p.add_argument("--test_path", type=str, default="sft_test.jsonl")
     p.add_argument("--epochs", type=int, default=3)
-    p.add_argument("--batch_size", type=int, default=8)
+    p.add_argument("--batch_size", type=int, default=16)
     p.add_argument("--lr", type=float, default=2e-5)
     p.add_argument("--warmup_ratio", type=float, default=0.03)
     p.add_argument("--max_len", type=int, default=1024)
