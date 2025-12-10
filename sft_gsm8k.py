@@ -330,7 +330,7 @@ def main():
     p.add_argument("--train_sizes", type=int, nargs="+", default=[128, 256, 512, 1024, -1])  # -1=full
     args = p.parse_args()
 
-    wandb.init(project=args.project, name=args.run_name)
+    wandb.init(project=args.project, name=args.run_name, config=vars(args))
 
     for sz in args.train_sizes:
         suffix = f"sz={sz if sz>0 else 'full'}"
