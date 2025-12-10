@@ -128,11 +128,27 @@ def extract_final_answer(text: str):
 def evaluate_with_vllm(llm: LLM, eval_prompts: List[str], references: List[str], max_new_tokens=512) -> Dict[str, Any]:
     sampling = SamplingParams(temperature=0.0, max_tokens=max_new_tokens)
     outs = llm.generate(eval_prompts, sampling_params=sampling)
+    
     preds = []
+    gen_lens = []          # <- 新增：记录生成长度
+    trunc_count = 0        # <- 新增：记录被 length 截断的样本数
+    
     for out in outs:
         # vLLM 返回一个 RequestOutput，取第一条候选文本
-        text = out.outputs[0].text
+        o = out.outputs[0]
+        text = o.text
         preds.append(text)
+        
+        # --- 新增：统计长度 & 截断原因 ---
+        # token_ids 在 vLLM 的 Output 里一般都有，比用分词更准
+        if hasattr(o, "token_ids") and o.token_ids is not None:
+            gen_lens.append(len(o.token_ids))
+        else:
+            # 兜底：用空格粗略算长度（不太准，但够看）
+            gen_lens.append(len(text.split()))
+        finish_reason = getattr(o, "finish_reason", None)
+        if finish_reason == "length":
+            trunc_count += 1
 
     ref_ans = [extract_final_answer(r) for r in references]
     pred_ans = [extract_final_answer(p) for p in preds]
@@ -157,6 +173,10 @@ def evaluate_with_vllm(llm: LLM, eval_prompts: List[str], references: List[str],
     format_denom = len(preds)
     format_acc = format_correct / format_denom if format_denom > 0 else 0.0
 
+     # --- 新增：长度 + 截断比例 ---
+    avg_gen_len = float(sum(gen_lens) / len(gen_lens)) if gen_lens else 0.0
+    trunc_rate = float(trunc_count / len(gen_lens)) if gen_lens else 0.0
+    
     return {
         "accuracy": acc,
         "denom": total,
@@ -165,6 +185,8 @@ def evaluate_with_vllm(llm: LLM, eval_prompts: List[str], references: List[str],
         "pred_texts": preds,
         "pred_ans": pred_ans,
         "ref_ans": ref_ans,
+        "avg_gen_len": avg_gen_len,   # 新增
+        "trunc_rate": trunc_rate,     # 新增
     }
 
 
@@ -280,6 +302,10 @@ def run_one_size(args, train_path, test_path, train_size, run_suffix):
                     f"eval/denom[{run_suffix}]": metrics["denom"],
                     f"eval/format_accuracy[{run_suffix}]": metrics["format_accuracy"],
                     f"eval/format_denom[{run_suffix}]": metrics["format_denom"],
+                    # --- 新增 ---
+                    f"eval/avg_gen_len[{run_suffix}]": metrics["avg_gen_len"],
+                    f"eval/trunc_rate[{run_suffix}]": metrics["trunc_rate"],
+                    # -----------
                     "eval_step": eval_step,
                     "train_step": global_train_step,
                 })
@@ -303,6 +329,10 @@ def run_one_size(args, train_path, test_path, train_size, run_suffix):
                 f"eval/denom[{run_suffix}]": metrics["denom"],
                 f"eval/format_accuracy[{run_suffix}]": metrics["format_accuracy"],
                 f"eval/format_denom[{run_suffix}]": metrics["format_denom"],
+                # --- 新增 ---
+                f"eval/avg_gen_len[{run_suffix}]": metrics["avg_gen_len"],
+                f"eval/trunc_rate[{run_suffix}]": metrics["trunc_rate"],
+                # -----------
                 "eval_step": eval_step,
                 "train_step": global_train_step,
             })
@@ -323,7 +353,7 @@ def main():
     p.add_argument("--log_every", type=int, default=20)
     p.add_argument("--eval_every", type=int, default=100)
     p.add_argument("--eval_n", type=int, default=256)
-    p.add_argument("--gen_max_new_tokens", type=int, default=512)
+    p.add_argument("--gen_max_new_tokens", type=int, default=1024)
     p.add_argument("--vllm_mem_util", type=float, default=0.85)
     p.add_argument("--project", type=str, default="sft-gsm8k")
     p.add_argument("--run_name", type=str, default="qwen1.5b-sft")
