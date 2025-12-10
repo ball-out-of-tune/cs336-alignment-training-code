@@ -137,17 +137,36 @@ def evaluate_with_vllm(llm: LLM, eval_prompts: List[str], references: List[str],
     ref_ans = [extract_final_answer(r) for r in references]
     pred_ans = [extract_final_answer(p) for p in preds]
 
+    # ------ 数值正确率（result accuracy）------
     correct = 0
     total = 0
     for pa, ra in zip(pred_ans, ref_ans):
-        if ra is None: 
+        if ra is None:
             continue
         total += 1
         if pa is not None and pa == ra:
             correct += 1
-
     acc = correct / total if total > 0 else 0.0
-    return {"accuracy": acc, "pred_texts": preds, "pred_ans": pred_ans, "ref_ans": ref_ans, "denom": total}
+
+    # ------ 格式正确率（format accuracy）------
+    # 严格定义：是否出现 "#### 数字"
+    format_correct = 0
+    for p in preds:
+        if ANS_RE.search(p) is not None:
+            format_correct += 1
+    format_denom = len(preds)
+    format_acc = format_correct / format_denom if format_denom > 0 else 0.0
+
+    return {
+        "accuracy": acc,
+        "denom": total,
+        "format_accuracy": format_acc,
+        "format_denom": format_denom,
+        "pred_texts": preds,
+        "pred_ans": pred_ans,
+        "ref_ans": ref_ans,
+    }
+
 
 # -------- 主流程 --------
 def run_one_size(args, train_path, test_path, train_size, run_suffix):
@@ -244,12 +263,19 @@ def run_one_size(args, train_path, test_path, train_size, run_suffix):
                 sample = list(itertools.islice(test_ds, 0, k))
                 eval_prompts = [x["prompt"] for x in sample]
                 eval_refs = [x["response"] for x in sample]
-                metrics = evaluate_with_vllm(llm, eval_prompts, eval_refs, max_new_tokens=args.gen_max_new_tokens)
+                metrics = evaluate_with_vllm(
+                    llm,
+                    eval_prompts,
+                    eval_refs,
+                    max_new_tokens=args.gen_max_new_tokens
+                )
                 wandb.log({
                     f"eval/accuracy[{run_suffix}]": metrics["accuracy"],
                     f"eval/denom[{run_suffix}]": metrics["denom"],
+                    f"eval/format_accuracy[{run_suffix}]": metrics["format_accuracy"],
+                    f"eval/format_denom[{run_suffix}]": metrics["format_denom"],
                     "eval_step": eval_step,
-                    "train_step": global_train_step
+                    "train_step": global_train_step,
                 })
 
         # 轮末再评测一次
@@ -260,16 +286,25 @@ def run_one_size(args, train_path, test_path, train_size, run_suffix):
             sample = list(itertools.islice(test_ds, 0, k))
             eval_prompts = [x["prompt"] for x in sample]
             eval_refs = [x["response"] for x in sample]
-            metrics = evaluate_with_vllm(llm, eval_prompts, eval_refs, max_new_tokens=args.gen_max_new_tokens)
+            metrics = evaluate_with_vllm(
+                llm,
+                eval_prompts,
+                eval_refs,
+                max_new_tokens=args.gen_max_new_tokens
+            )
             wandb.log({
                 f"eval/accuracy[{run_suffix}]": metrics["accuracy"],
                 f"eval/denom[{run_suffix}]": metrics["denom"],
+                f"eval/format_accuracy[{run_suffix}]": metrics["format_accuracy"],
+                f"eval/format_denom[{run_suffix}]": metrics["format_denom"],
                 "eval_step": eval_step,
-                "train_step": global_train_step
+                "train_step": global_train_step,
             })
+
 
 def main():
     p = argparse.ArgumentParser()
+    # TODO: tune lr and batch_size to get better performance, adjust eval freq and epochs to reduce time
     p.add_argument("--model_id", type=str, default="Qwen/Qwen2.5-1.5B")
     p.add_argument("--train_path", type=str, default="sft_train.jsonl")
     p.add_argument("--test_path", type=str, default="sft_test.jsonl")
