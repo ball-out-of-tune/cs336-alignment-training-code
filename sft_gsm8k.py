@@ -365,7 +365,7 @@ def main():
     p.add_argument("--test_path", type=str, default="sft_test.jsonl")
     p.add_argument("--epochs", type=int, default=3)
     p.add_argument("--batch_size", type=int, default=12)
-    p.add_argument("--lr", type=float, default=3e-5)
+    p.add_argument("--lr", type=float, default=1e-5)
     p.add_argument("--warmup_ratio", type=float, default=0.03)
     p.add_argument("--max_len", type=int, default=1024)
     p.add_argument("--log_every", type=int, default=20)

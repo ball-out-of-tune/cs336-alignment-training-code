@@ -256,6 +256,7 @@ def run_expert_iteration(args):
         wandb.define_metric("ei_step")
         wandb.define_metric("train/*", step_metric="train_step")
         wandb.define_metric("eval/*", step_metric="eval_step")
+        wandb.define_metric("ei/*",   step_metric="ei_step") 
 
     # ---- 1) 加载原始 GSM8K 数据 ----
     base_train_ds = JsonlSFTDataset(args.train_path)  # 里面有 .items
@@ -352,12 +353,15 @@ def run_expert_iteration(args):
 
 # ============== 5. argparse & main ==============
 def main():
+    # TODO: 改变wandb输出, 现在的样式是散点图，很奇怪
+    # 以及适当调参
     p = argparse.ArgumentParser()
     # 和 SFT 基本一致的超参
     p.add_argument("--model_id", type=str, default="Qwen/Qwen2.5-1.5B")
     p.add_argument("--train_path", type=str, default="sft_train.jsonl")
     p.add_argument("--test_path", type=str, default="sft_test.jsonl")
     p.add_argument("--batch_size", type=int, default=4)
+    p.add_argument("--grad_accum_steps", type=int, default=1)
     p.add_argument("--lr", type=float, default=1e-5)
     p.add_argument("--warmup_ratio", type=float, default=0.03)
     p.add_argument("--max_len", type=int, default=1024)
@@ -369,7 +373,7 @@ def main():
 
     # EI 特有的超参
     p.add_argument("--n_ei_steps", type=int, default=40)
-    p.add_argument("--ei_db_size", type=int, default=8)      # |Db|，作业要在 {512,1024,2048} 中试几个
+    p.add_argument("--ei_db_size", type=int, default=64)      # |Db|，作业要在 {512,1024,2048} 中试几个
     p.add_argument("--ei_num_rollouts", type=int, default=4)    # G
     p.add_argument("--ei_sft_epochs", type=int, default=1)      # 每个 EI step 内部 SFT 的 epoch 数
     p.add_argument("--ei_temperature", type=float, default=0.7)
