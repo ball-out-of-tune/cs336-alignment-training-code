@@ -1,6 +1,7 @@
 # sft_gsm8k.py
 import os, json, math, random, re, argparse, itertools
 from dataclasses import dataclass
+import time
 from typing import List, Dict, Any
 
 import torch
@@ -258,6 +259,11 @@ def run_one_size(args, train_path, test_path, train_size, run_suffix):
     for epoch in range(args.epochs):
         for batch in train_loader:
             global_train_step += 1
+            
+            torch.cuda.synchronize()
+            t0 = time.time()
+
+            
             input_ids = batch["input_ids"].to(device)
             labels = batch["labels"].to(device)
             response_mask = batch["response_mask"].to(device)
@@ -273,12 +279,22 @@ def run_one_size(args, train_path, test_path, train_size, run_suffix):
             opt.step()
             sched.step()
 
+            torch.cuda.synchronize()
+            step_time = time.time() - t0
+            tokens = input_ids.numel()              # B * S，大致 token 数
+            toks_per_sec = tokens / step_time
+
             if rank0 and (global_train_step % args.log_every == 0):
                 # === 新增：记录当前学习率 ===
                 current_lr = sched.get_last_lr()[0]  # 或者 opt.param_groups[0]["lr"]
+                mem_alloc = torch.cuda.max_memory_allocated(device) / 1024**3
+                mem_reserved = torch.cuda.max_memory_reserved(device) / 1024**3
                 wandb.log({
                     f"train/loss[{run_suffix}]": loss.item(),
                     f"train/lr[{run_suffix}]": current_lr,
+                    f"train/tok_s[{run_suffix}]": toks_per_sec,
+                    f"train/mem_alloc_GB[{run_suffix}]": mem_alloc,
+                    f"train/mem_reserved_GB[{run_suffix}]": mem_reserved,
                     "train_step": global_train_step,
                 })
 
@@ -348,7 +364,7 @@ def main():
     p.add_argument("--train_path", type=str, default="sft_train.jsonl")
     p.add_argument("--test_path", type=str, default="sft_test.jsonl")
     p.add_argument("--epochs", type=int, default=3)
-    p.add_argument("--batch_size", type=int, default=16)
+    p.add_argument("--batch_size", type=int, default=8)
     p.add_argument("--lr", type=float, default=2e-5)
     p.add_argument("--warmup_ratio", type=float, default=0.03)
     p.add_argument("--max_len", type=int, default=1024)
