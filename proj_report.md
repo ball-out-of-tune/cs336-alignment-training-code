@@ -72,11 +72,11 @@ trunc_rate 明显高于其他规模，说明在 20% 左右的问题上，模型�
 
 因此我们认为当前的 gen_max_new_tokens = 1024 已足够容纳完整的解题过程和答案，无需继续增大；相反，更重要的是通过 prompt 或训练配置来控制模型的冗余生成。(我试着把gen_max_len调整到2048, 发现accuracy没有显著提高，avg_len却显著提高，说明模型已经输出了正确答案，后面在说冗余文本)
 
-![alt text](<W&B Chart 11_12_2025, 15_07_51.png>)
+![alt text](<truc_rate.png>)
 
 同时batch_size = 12 比 batch_size = 8 tok / s提高约20%
 
-![alt text](image.png)
+![alt text](tok_speed.png)
 
 ### lr 调参
 
