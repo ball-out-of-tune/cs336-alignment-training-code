@@ -93,4 +93,9 @@ with torch.no_grad():
     log_probs = torch.log_softmax(logits, dim=-1) # <--- 创建第三个 7.46 GB
     token_ent = -(probs * log_probs).sum(dim=-1)
 ```
-在这一瞬间，为了计算一个用来画图的 entropy 指标，你同时持有了：logits (7.5 GB)probs (7.5 GB)log_probs (7.5 GB)仅这三项就占用了 ~22.5 GB 显存。其他显存占用:模型权重 (bf16): ~3 GBOptimizer States (AdamW): 约 6-9 GB (取决于实现)Gradients: ~3 GBActivations: ~2-4 GB总计: $22.5 + 3 + 9 + 3 + 2 \approx \mathbf{39.5 \text{ GB}}$。考虑到显存碎片化（Fragmentation）和 PyTorch 上下文开销，这直接撑爆了你的 44GB 显存
+在这一瞬间，为了计算一个用来画图的 entropy 指标，你同时持有了：logits (7.5 GB)probs (7.5 GB)log_probs (7.5 GB)仅这三项就占用了 ~22.5 GB 显存。其他显存占用:模型权重 (bf16): ~3 GBOptimizer States (AdamW): 约 6-9 GB (取决于实现)Gradients: ~3 GBActivations: ~2-4 GB总计: $22.5 + 3 + 9 + 3 + 2 \approx \mathbf{39.5 \text{ GB}}$。考虑到显存碎片化（Fragmentation）和 PyTorch 上下文开销，这直接撑爆了 44GB 显存
+
+### 对prompt / answer进行处理
+dataWithTag(e.g. <user>, <asistant>, <system>) 没有在accuracy上有显著的提升
+(under this system prompt:"You are a helpful math tutor. Please reason step by step and give the final answer after '####')
+

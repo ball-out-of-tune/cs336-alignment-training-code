@@ -109,7 +109,7 @@ def sft_train_on_dataset(
     train_ds,
     test_ds,
     llm,
-    run_suffix: str,
+    ei_step: int,
     num_epochs: int,
     start_train_step: int = 0,
     start_eval_step: int = 0,
@@ -211,13 +211,14 @@ def sft_train_on_dataset(
                 mem_reserved = torch.cuda.max_memory_reserved(device) / 1024**3
                 wandb.log(
                     {
-                        f"train/loss[{run_suffix}]": loss.item(),
-                        f"train/entropy[{run_suffix}]": entropy,
-                        f"train/lr[{run_suffix}]": current_lr,
-                        f"train/tok_s[{run_suffix}]": toks_per_sec,
-                        f"train/mem_alloc_GB[{run_suffix}]": mem_alloc,
-                        f"train/mem_reserved_GB[{run_suffix}]": mem_reserved,
+                        f"train/loss": loss.item(),
+                        f"train/entropy": entropy,
+                        f"train/lr": current_lr,
+                        f"train/tok_s": toks_per_sec,
+                        f"train/mem_alloc_GB": mem_alloc,
+                        f"train/mem_reserved_GB": mem_reserved,
                         "train_step": global_train_step,
+                        "ei_step": ei_step,
                     }
                 )
 
@@ -232,14 +233,15 @@ def sft_train_on_dataset(
                 metrics = evaluate_with_vllm(llm, eval_prompts, eval_refs, max_new_tokens=args.gen_max_new_tokens)
                 wandb.log(
                     {
-                        f"eval/accuracy[{run_suffix}]": metrics["accuracy"],
-                        f"eval/denom[{run_suffix}]": metrics["denom"],
-                        f"eval/format_accuracy[{run_suffix}]": metrics["format_accuracy"],
-                        f"eval/format_denom[{run_suffix}]": metrics["format_denom"],
-                        f"eval/avg_gen_len[{run_suffix}]": metrics["avg_gen_len"],
-                        f"eval/trunc_rate[{run_suffix}]": metrics["trunc_rate"],
+                        f"eval/accuracy": metrics["accuracy"],
+                        f"eval/denom": metrics["denom"],
+                        f"eval/format_accuracy": metrics["format_accuracy"],
+                        f"eval/format_denom[": metrics["format_denom"],
+                        f"eval/avg_gen_len": metrics["avg_gen_len"],
+                        f"eval/trunc_rate": metrics["trunc_rate"],
                         "eval_step": eval_step,
                         "train_step": global_train_step,
+                        "ei_step": ei_step,
                     }
                 )
 
@@ -290,8 +292,6 @@ def run_expert_iteration(args):
 
     # ---- 4) EI 外环 ----
     for ei_step in range(1, args.n_ei_steps + 1):
-        run_suffix = f"EIstep={ei_step}_Db={args.ei_db_size}_G={args.ei_num_rollouts}"
-
         # 4.1 用当前 policy + vLLM 生成 EI 训练数据
         ei_sft_items, frac_correct = build_ei_sft_dataset(
             llm=llm,
@@ -304,8 +304,8 @@ def run_expert_iteration(args):
         )
         wandb.log(
             {
-                f"ei/frac_correct_rollouts[{run_suffix}]": frac_correct,
-                f"ei/num_sft_pairs[{run_suffix}]": len(ei_sft_items),
+                f"ei/frac_correct_rollouts": frac_correct,
+                f"ei/num_sft_pairs": len(ei_sft_items),
                 "ei_step": ei_step,
             }
         )
@@ -324,7 +324,7 @@ def run_expert_iteration(args):
             train_ds=ei_sft_ds,
             test_ds=test_ds,
             llm=llm,
-            run_suffix=run_suffix,
+            ei_step=ei_step,
             num_epochs=args.ei_sft_epochs,
             start_train_step=global_train_step,
             start_eval_step=eval_step,
@@ -340,8 +340,8 @@ def run_expert_iteration(args):
         metrics = evaluate_with_vllm(llm, eval_prompts, eval_refs, max_new_tokens=args.gen_max_new_tokens)
         wandb.log(
             {
-                f"eval/accuracy_final[{run_suffix}]": metrics["accuracy"],
-                f"eval/denom_final[{run_suffix}]": metrics["denom"],
+                f"eval/accuracy_final": metrics["accuracy"],
+                f"eval/denom_final": metrics["denom"],
                 "eval_step": eval_step,
                 "train_step": global_train_step,
                 "ei_step": ei_step,
@@ -358,8 +358,8 @@ def main():
     p = argparse.ArgumentParser()
     # 和 SFT 基本一致的超参
     p.add_argument("--model_id", type=str, default="Qwen/Qwen2.5-1.5B")
-    p.add_argument("--train_path", type=str, default="sft_train.jsonl")
-    p.add_argument("--test_path", type=str, default="sft_test.jsonl")
+    p.add_argument("--train_path", type=str, default="data/sft_train.jsonl")
+    p.add_argument("--test_path", type=str, default="data/sft_test.jsonl")
     p.add_argument("--batch_size", type=int, default=4)
     p.add_argument("--grad_accum_steps", type=int, default=1)
     p.add_argument("--lr", type=float, default=1e-5)
@@ -372,8 +372,8 @@ def main():
     p.add_argument("--vllm_mem_util", type=float, default=0.85)
 
     # EI 特有的超参
-    p.add_argument("--n_ei_steps", type=int, default=40)
-    p.add_argument("--ei_db_size", type=int, default=64)      # |Db|，作业要在 {512,1024,2048} 中试几个
+    p.add_argument("--n_ei_steps", type=int, default=5)
+    p.add_argument("--ei_db_size", type=int, default=2048)      # |Db|，作业要在 {512,1024,2048} 中试几个
     p.add_argument("--ei_num_rollouts", type=int, default=4)    # G
     p.add_argument("--ei_sft_epochs", type=int, default=1)      # 每个 EI step 内部 SFT 的 epoch 数
     p.add_argument("--ei_temperature", type=float, default=0.7)
