@@ -241,7 +241,11 @@ def run_one_size(args, train_path, test_path, train_size, run_suffix):
 
     # 优化器与调度器
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, betas=(0.9, 0.95), weight_decay=0.01)
-    num_update_steps_per_epoch = math.ceil(len(train_loader))
+    # 原始 micro-batch 的步数
+    num_micro_batches_per_epoch = len(train_loader)
+    # 真实的更新步数 = micro步数 / 累积步数 (向上取整)
+    num_update_steps_per_epoch = math.ceil(num_micro_batches_per_epoch / args.gradient_accumulation_steps)
+    
     max_train_steps = args.epochs * num_update_steps_per_epoch
     warmup = int(args.warmup_ratio * max_train_steps)
     sched = get_linear_schedule_with_warmup(opt, num_warmup_steps=warmup, num_training_steps=max_train_steps)
@@ -256,8 +260,12 @@ def run_one_size(args, train_path, test_path, train_size, run_suffix):
     global_train_step = 0
     eval_step = 0
 
+    # 必须先把梯度清零放在循环外（第一次迭代前）
+    opt.zero_grad(set_to_none=True)
+    
     for epoch in range(args.epochs):
-        for batch in train_loader:
+        # 使用 enumerate 以便判断是否是最后一步
+        for step_idx, batch in enumerate(train_loader):
             global_train_step += 1
             
             torch.cuda.synchronize()
@@ -273,11 +281,18 @@ def run_one_size(args, train_path, test_path, train_size, run_suffix):
             logits = out.logits  # (B, S, V)
             loss = sft_loss(logits, labels, response_mask)
 
-            opt.zero_grad(set_to_none=True)
-            loss.backward()
-            clip_grad_norm_(model.parameters(), 1.0)
-            opt.step()
-            sched.step()
+            # === [修改 1] Loss 标准化 ===
+            # 将 loss 除以累积步数，这样多次 backward 累加后的梯度才是平均值
+            loss_scaled = loss / args.gradient_accumulation_steps
+            loss_scaled.backward()
+
+            # === [修改 2] 梯度裁剪与参数更新 ===
+            # 判断条件：累计步数满了，或者是该 Epoch 的最后一个 batch
+            if (step_idx + 1) % args.gradient_accumulation_steps == 0 or (step_idx + 1) == len(train_loader):
+                clip_grad_norm_(model.parameters(), 1.0)
+                opt.step()
+                sched.step()
+                opt.zero_grad(set_to_none=True) # 更新完才清零
 
             torch.cuda.synchronize()
             step_time = time.time() - t0
@@ -364,13 +379,15 @@ def main():
     p.add_argument("--train_path", type=str, default="sft_train.jsonl")
     p.add_argument("--test_path", type=str, default="sft_test.jsonl")
     p.add_argument("--epochs", type=int, default=3)
-    p.add_argument("--batch_size", type=int, default=12)
-    p.add_argument("--lr", type=float, default=1e-5)
+    p.add_argument("--batch_size", type=int, default=8)
+    # === [新增] 梯度累积步数，默认为 8 ===
+    p.add_argument("--gradient_accumulation_steps", type=int, default=8)
+    p.add_argument("--lr", type=float, default=2e-5)
     p.add_argument("--warmup_ratio", type=float, default=0.03)
     p.add_argument("--max_len", type=int, default=1024)
     p.add_argument("--log_every", type=int, default=20)
     p.add_argument("--eval_every", type=int, default=100)
-    p.add_argument("--eval_n", type=int, default=256)
+    p.add_argument("--eval_n", type=int, default=1319)
     p.add_argument("--gen_max_new_tokens", type=int, default=1024)
     p.add_argument("--vllm_mem_util", type=float, default=0.85)
     p.add_argument("--project", type=str, default="sft-gsm8k")
