@@ -24,6 +24,27 @@ from sft_gsm8k import (
     load_policy_into_vllm_instance,
 )
 
+# ============== 0. 定义 Few-shot CoT 模版 (新增) ==============
+# 标准的 4-shot GSM8K 样例。
+# 作用：告诉 Base 模型“你应该这样一步步推理，最后用 #### 输出答案”。
+GSM8K_COT_TEMPLATE = """Question: There are 15 trees in the grove. Grove workers will plant trees in the grove today. After they are done, there will be 21 trees. How many trees did the grove workers plant today?
+Answer: There are 15 trees originally. Then workers plant some trees. The total becomes 21. So the number of trees planted is 21 - 15 = 6.
+#### 6
+
+Question: If there are 3 cars in the parking lot and 2 more cars arrive, how many cars are in the parking lot?
+Answer: Originally there are 3 cars. 2 cars arrive. 3 + 2 = 5.
+#### 5
+
+Question: Leah had 32 chocolates and her sister had 42. If they ate 35, how many pieces do they have left in total?
+Answer: Leah had 32 chocolates and her sister had 42. That means there were 32 + 42 = 74 chocolates in total. The sisters ate 35. That means there are 74 - 35 = 39 chocolates left.
+#### 39
+
+Question: Jason had 20 lollipops. He gave Denny some lollipops. Now Jason has 12 lollipops. How many lollipops did Jason give to Denny?
+Answer: Jason had 20 lollipops. Originally, he had 20. Then he had 12 left. So he gave Denny 20 - 12 = 8 lollipops.
+#### 8
+
+Question: {question}
+Answer:"""
 
 # ============== 1. 内存版 SFT Dataset ==============
 class InMemorySFTDataset(Dataset):
@@ -39,8 +60,20 @@ class InMemorySFTDataset(Dataset):
     def __getitem__(self, idx):
         return self.items[idx]
 
-
-# ============== 2. 用当前 policy 生成 EI 训练数据 ==============
+def extract_raw_question(prompt_text):
+    """
+    从 sft_train.jsonl 的 prompt 中提取真正的题目内容。
+    Prompt 格式: "You are a helpful math tutor... \n\nQuestion: {real_question}"
+    我们需要去掉前面的指令，只留 {real_question} 用于 Few-shot 生成。
+    """
+    separator = "\n\nQuestion: "
+    if separator in prompt_text:
+        return prompt_text.split(separator)[-1].strip()
+    else:
+        # 如果找不到分隔符，说明格式可能有变，或者已经是纯问题了
+        return prompt_text
+    
+# ============== 2. 用当前 policy 生成 EI 训练数据 (修改版) ==============
 @torch.no_grad()
 def build_ei_sft_dataset(
     llm,
@@ -51,50 +84,65 @@ def build_ei_sft_dataset(
     temperature: float = 0.7,
     seed: int = 42,
 ):
-    """
-    从 base_items 里采样 ei_db_size 个问题，用当前 policy 生成 num_rollouts 个解，
-    用 final answer 是否正确作为 reward=1/0，过滤出正样本。
-    返回:
-        ei_sft_items: list[{"prompt":..., "response":...}]
-        frac_correct: 正确的 rollouts 占总 rollouts 的比例（监控用）
-    """
-    from vllm import SamplingParams  # 用的是 sft_gsm8k 里导入的同一个 vLLM
+    from vllm import SamplingParams
 
     rng = random.Random(seed)
     if ei_db_size > len(base_items):
         ei_db_size = len(base_items)
 
-    # 采样 Db
+    # 1. 采样 Db
     Db = rng.sample(base_items, ei_db_size)
-    prompts = [x["prompt"] for x in Db]
-    refs = [x["response"] for x in Db]   # 里面有标准答案
+    
+    # 原始的 Prompts (带 Instruction)，用来存入数据集，以此保证 SFT 后的指令跟随能力
+    original_prompts = [x["prompt"] for x in Db]
+    
+    # 标准答案，用来验证正确性
+    refs = [x["response"] for x in Db]
 
+    # === 核心修改：生成专用的 Prompts ===
+    # A. 清洗：提取纯题目 (去掉 "You are a helpful math tutor...")
+    raw_questions = [extract_raw_question(p) for p in original_prompts]
+    
+    # B. 包装：将纯题目放入 Few-shot 模版
+    # 这样 Math-Base 模型看到的就是干净的 "Question: ... Answer: ..." 序列
+    generation_prompts = [GSM8K_COT_TEMPLATE.format(question=q) for q in raw_questions]
+
+    # 2. 设置采样参数
     sampling_params = SamplingParams(
         temperature=temperature,
         max_tokens=max_new_tokens,
-        min_tokens=4,      # 作业里推荐，避免空串
-        n=num_rollouts,    # 每个问题 G 个 rollouts
+        min_tokens=4,
+        n=num_rollouts,
+        # === 关键：增加停止词 ===
+        # 防止 Base 模型做完题后产生幻觉，继续自己出题
+        stop=["Question:", "Question", "Problem:", "Answer:", "You are"], 
     )
 
-    # vLLM 批量生成
-    outs = llm.generate(prompts, sampling_params=sampling_params)
+    # 3. vLLM 批量生成 (使用 generation_prompts)
+    outs = llm.generate(generation_prompts, sampling_params=sampling_params)
 
     ei_sft_items: List[Dict[str, str]] = []
     total_rollouts = 0
     num_correct = 0
 
-    for q, ref, out in zip(prompts, refs, outs):
+    # 4. 遍历结果
+    # 注意：我们遍历 original_prompts (原始带指令的) 和 refs (答案) 以及 outs (生成结果)
+    for orig_p, ref, out in zip(original_prompts, refs, outs):
         gold = extract_final_answer(ref)
 
         for cand in out.outputs:
             total_rollouts += 1
-            text = cand.text
+            text = cand.text  # 模型生成的 CoT (例如 "So 1+1=2.\n#### 2")
             pred = extract_final_answer(text)
 
             if gold is not None and pred is not None and pred == gold:
                 num_correct += 1
-                # 保留这条 (prompt, response) 用来做 SFT
-                ei_sft_items.append({"prompt": q, "response": text})
+                
+                # === 关键点 ===
+                # 保存到数据集的是: 
+                # {"prompt": 原始带指令Prompt, "response": 生成的纯CoT}
+                # 这样训练出来的模型，既能听懂指令，又能拥有 CoT 能力。
+                ei_sft_items.append({"prompt": orig_p, "response": text})
 
     frac_correct = num_correct / max(total_rollouts, 1)
 
@@ -367,13 +415,13 @@ def main():
     p.add_argument("--max_len", type=int, default=1024)
     p.add_argument("--log_every", type=int, default=20)
     p.add_argument("--eval_every", type=int, default=200)  # EI 里可以稍微稀一点
-    p.add_argument("--eval_n", type=int, default=256)
+    p.add_argument("--eval_n", type=int, default=1319)
     p.add_argument("--gen_max_new_tokens", type=int, default=1024)
     p.add_argument("--vllm_mem_util", type=float, default=0.85)
 
     # EI 特有的超参
     p.add_argument("--n_ei_steps", type=int, default=5)
-    p.add_argument("--ei_db_size", type=int, default=2048)      # |Db|，作业要在 {512,1024,2048} 中试几个
+    p.add_argument("--ei_db_size", type=int, default=1024)      # |Db|，作业要在 {512,1024,2048} 中试几个
     p.add_argument("--ei_num_rollouts", type=int, default=4)    # G
     p.add_argument("--ei_sft_epochs", type=int, default=1)      # 每个 EI step 内部 SFT 的 epoch 数
     p.add_argument("--ei_temperature", type=float, default=0.7)
