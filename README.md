@@ -1,6 +1,13 @@
-# cs336-alignment-training-code
+# SFT / LoRA / EI / GRPO
+### TODO: LoRA /EI / GRPO 部分待完善
 
-## SFT 实验报告：Qwen2.5-1.5B on GSM8K
+## 快速配置
+### TODO: 把这里写成代码形式
+git clone 实验代码
+uv sync安装所需要的包(可使用国内源)
+python sft_gsm8k.py一键开始SFT
+
+## SFT 实验报告：Qwen2.5-1.5B on GSM8K(on 2 nvidia L40S)
 
 本阶段实验使用 **Qwen2.5-1.5B Base** 模型在 **GSM8K** 数据集上进行监督微调（SFT）。实验重点在于探索不同数据规模（Data Scaling）对模型推理能力的影响，以及验证 SFT 在推理任务中作为“格式适配器”的作用。
 
@@ -88,6 +95,6 @@ trunc_rate 明显高于其他规模，说明在 20% 左右的问题上，模型�
 这反映出小数据 SFT 在“何时停止生成”这一点上的不稳定性
 
 #### 下一步计划
-鉴于 SFT 在 512 样本下已达到 0.61 的 Accuracy，后续将以此 Checkpoint 为起点（Warm-start），引入强化学习（如 GRPO/Expert Iteration），探索能否突破 SFT 的性能天花板。/ 引入LoRA, 探索性能方面的优化
+鉴于 SFT 在 128 样本下已达到 0.61 的 Accuracy，后续将以此 Checkpoint 为起点（Warm-start），引入强化学习（如 GRPO/Expert Iteration），探索能否突破 SFT 的性能天花板。/ 引入LoRA, 探索性能方面的优化
 
 ---
