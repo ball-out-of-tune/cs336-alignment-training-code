@@ -5,6 +5,10 @@
 4.full_size的时候测试集准确率大幅下降 / 其它size也都有开始时候最高，越训练越下降的趋势
 5.full SFT 和 LoRA/QLoRA 的对比
 
+### Qwen2.5-1.5B模型在gsm8k上面的准确率
+模型: Qwen/Qwen2.5-1.5B
+平均 result accuracy: 52.08%
+平均 format accuracy: 0.23%
 
 ### prompt长度记录
 sft_train.jsonl
