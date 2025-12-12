@@ -376,13 +376,13 @@ def main():
     # and use qwen's tokenizer, also add GPU utilization and speed record, change vllm max_context_size
     # learn about why use vllm 
     p.add_argument("--model_id", type=str, default="Qwen/Qwen2.5-1.5B")
-    p.add_argument("--train_path", type=str, default="sft_train.jsonl")
-    p.add_argument("--test_path", type=str, default="sft_test.jsonl")
+    p.add_argument("--train_path", type=str, default="data/sft_train.jsonl")
+    p.add_argument("--test_path", type=str, default="data/sft_test.jsonl")
     p.add_argument("--epochs", type=int, default=3)
-    p.add_argument("--batch_size", type=int, default=8)
+    p.add_argument("--batch_size", type=int, default=12)
     # === [新增] 梯度累积步数，默认为 8 ===
-    p.add_argument("--gradient_accumulation_steps", type=int, default=8)
-    p.add_argument("--lr", type=float, default=2e-5)
+    p.add_argument("--gradient_accumulation_steps", type=int, default=1)
+    p.add_argument("--lr", type=float, default=1e-5)
     p.add_argument("--warmup_ratio", type=float, default=0.03)
     p.add_argument("--max_len", type=int, default=1024)
     p.add_argument("--log_every", type=int, default=20)
