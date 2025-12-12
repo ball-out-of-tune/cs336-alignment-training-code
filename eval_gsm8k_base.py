@@ -137,12 +137,12 @@ def main():
     parser.add_argument(
         "--test_path",
         type=str,
-        default="sft_test.jsonl",
+        default="data/sft_test.jsonl",
     )
     parser.add_argument(
         "--eval_n",
         type=int,
-        default=256,  # 每次评估抽多少条
+        default=1319,  # 每次评估抽多少条
     )
     parser.add_argument(
         "--gen_max_new_tokens",
@@ -179,8 +179,8 @@ def main():
         gpu_memory_utilization=args.vllm_mem_util,
     )
 
-        # -------- 评估 3 次，随机抽样 eval_n 条，取平均 --------
-    num_runs = 3
+        # -------- 评估 n 次，随机抽样 eval_n 条，取平均 -------- 或者直接取全部测试集
+    num_runs = 1
     result_accs = []
     format_accs = []
 
@@ -235,7 +235,7 @@ def main():
     mean_result_acc = sum(result_accs) / num_runs if num_runs > 0 else 0.0
     mean_format_acc = sum(format_accs) / num_runs if num_runs > 0 else 0.0
 
-    print("\n========== 最终平均结果（3 次评估） ==========")
+    print("\n========== 最终平均结果 ==========")
     print(f"模型: {args.model_id}")
     print(f"平均 result accuracy: {mean_result_acc * 100:.2f}%")
     print(f"平均 format accuracy: {mean_format_acc * 100:.2f}%")
