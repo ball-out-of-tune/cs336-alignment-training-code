@@ -380,7 +380,7 @@ def main():
     p.add_argument("--test_path", type=str, default="data/sft_test.jsonl")
     p.add_argument("--epochs", type=int, default=3)
     p.add_argument("--batch_size", type=int, default=12)
-    # === [新增] 梯度累积步数，默认为 8 ===
+    # === [新增] 梯度累积步数，默认为 1 ===
     p.add_argument("--gradient_accumulation_steps", type=int, default=1)
     p.add_argument("--lr", type=float, default=1e-5)
     p.add_argument("--warmup_ratio", type=float, default=0.03)
