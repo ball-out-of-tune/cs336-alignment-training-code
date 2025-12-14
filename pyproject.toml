@@ -19,6 +19,9 @@ dependencies = [
     "vllm==0.7.2",
     "wandb>=0.19.8",
     "xopen>=2.0.2",
+    "datasets<3.0.0",
+    "modelscope",
+    "addict",
 ]
 
 [tool.setuptools.packages.find]

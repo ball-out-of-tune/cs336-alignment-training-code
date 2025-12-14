@@ -2,7 +2,7 @@
 ### TODO: LoRA /EI / GRPO 部分待完善
 
 ## 快速配置
-### TODO: 把这里写成代码形式
+### TODO: 把这里写成代码形式, 以及下面的图片部分整理的好一些
 git clone 实验代码
 uv sync安装所需要的包(可使用国内源)
 python sft_gsm8k.py一键开始SFT
